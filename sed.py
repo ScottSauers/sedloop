@@ -7,7 +7,13 @@ from pyperclip import PyperclipException
 
 def run_command(command):
     # Merge stderr into stdout to capture all output
-    result = subprocess.run(command, shell=True, capture_output=True, text=True, stderr=subprocess.STDOUT)
+    result = subprocess.run(
+        command,
+        shell=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True
+    )
     return result.returncode, result.stdout
 
 def parse_cargo_output(output):
@@ -18,7 +24,7 @@ def parse_cargo_output(output):
         # Count individual error lines
         if "error:" in line and not line.startswith("error[E"):
             errors += 1
-        # Handle summary lines like "could not compile `xyz` due to X previous errors"
+        # Handle summary lines like "could not compile `ferromic` due to X previous errors"
         elif "could not compile" in line and "due to" in line:
             parts = line.split()
             # Look for the number before "previous errors"
