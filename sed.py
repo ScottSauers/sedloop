@@ -31,7 +31,7 @@ def parse_cargo_output(output):
 
     for line in output.splitlines():
         # Debug: Print each line being processed
-        print(f"Processing line: {line}")
+        # print(f"Processing line: {line}")
 
         # Handle 'could not compile' lines and extract error and warning counts
         compile_fail_match = compile_fail_pattern.search(line)
