@@ -9,14 +9,7 @@ import re
 def run_command(command):
     """
     Executes a shell command and captures its output.
-
-    Args:
-        command (str): The command to execute.
-
-    Returns:
-        tuple: (returncode, combined_output)
     """
-    # Merge stderr into stdout to capture all output
     result = subprocess.run(
         command,
         shell=True,
@@ -29,17 +22,10 @@ def run_command(command):
 def parse_cargo_output(output):
     """
     Parses the output from cargo commands to count errors and warnings.
-
-    Args:
-        output (str): The combined stdout and stderr from cargo commands.
-
-    Returns:
-        tuple: (errors, warnings)
     """
     errors = 0
     warnings = 0
 
-    # Regex patterns
     compile_fail_pattern = re.compile(
         r'^error:\s+could not compile `.*?`.*?due to\s+(\d+)\s+previous error[s]?;?\s+(\d+)\s+warnings? emitted',
         re.IGNORECASE
@@ -48,37 +34,25 @@ def parse_cargo_output(output):
     individual_warning_pattern = re.compile(r'^\s*warning:\s+(?!\[E)')
 
     for line in output.splitlines():
-        # Debug: Print each line being processed
-        # print(f"Processing line: {line}")
-
-        # Handle 'could not compile' lines and extract error and warning counts
         compile_fail_match = compile_fail_pattern.match(line)
         if compile_fail_match:
             error_count = int(compile_fail_match.group(1))
             warning_count = int(compile_fail_match.group(2))
             errors += error_count
             warnings += warning_count
-            print(f"Matched compile fail line: {line} with {error_count} errors and {warning_count} warnings")  # Debug
-            continue  # Skip further processing for this line to prevent double counting
+            continue
 
-        # Match individual error lines
         if individual_error_pattern.search(line):
             errors += 1
-            print(f"Matched individual error line: {line}")  # Debug
 
-        # Match individual warning lines
         if individual_warning_pattern.search(line):
             warnings += 1
-            print(f"Matched individual warning line: {line}")  # Debug
 
     return errors, warnings
 
 def run_cargo_checks():
     """
     Runs 'cargo check' and 'cargo test', parsing their outputs.
-
-    Returns:
-        tuple: (check_errors, check_warnings, test_errors, test_warnings)
     """
     _, check_output = run_command("cargo check")
     check_errors, check_warnings = parse_cargo_output(check_output)
@@ -88,50 +62,50 @@ def run_cargo_checks():
 
     return check_errors, check_warnings, test_errors, test_warnings
 
-def backup_directory(source_dir, backup_dir):
+def backup_rs_files(source_dir, backup_dir):
     """
-    Creates a backup of the entire source directory.
+    Backs up all .rs files in any subdir of source_dir to backup_dir while remembering their locations.
+    """
+    file_mapping = {}
 
-    Args:
-        source_dir (str): The directory to back up.
-        backup_dir (str): The backup destination directory.
-    """
-    print(f"Creating initial backup of '{source_dir}' at '{backup_dir}'...")
-    shutil.copytree(source_dir, backup_dir, dirs_exist_ok=True)
-    print("Initial backup created.")
+    for root, _, files in os.walk(source_dir):
+        for file in files:
+            if file.endswith(".rs"):
+                full_path = os.path.join(root, file)
+                relative_path = os.path.relpath(full_path, source_dir)
+                backup_path = os.path.join(backup_dir, relative_path)
+                
+                # Create directories in the backup path if they don't exist
+                os.makedirs(os.path.dirname(backup_path), exist_ok=True)
 
-def restore_directory(backup_dir, source_dir):
-    """
-    Restores the source directory from the backup.
+                # Copy the .rs file to the backup directory
+                shutil.copy(full_path, backup_path)
 
-    Args:
-        backup_dir (str): The backup source directory.
-        source_dir (str): The directory to restore to.
+                # Store the original location in the mapping
+                file_mapping[backup_path] = full_path
+
+    print(f"Backup of all .rs files created in '{backup_dir}'")
+    return file_mapping
+
+def restore_rs_files(file_mapping):
     """
-    print(f"Restoring '{source_dir}' from backup '{backup_dir}'...")
-    # Remove current source directory contents
-    for item in os.listdir(source_dir):
-        item_path = os.path.join(source_dir, item)
-        if os.path.isfile(item_path) or os.path.islink(item_path):
-            os.unlink(item_path)
-        elif os.path.isdir(item_path):
-            shutil.rmtree(item_path)
-    # Copy backup contents back to source directory
-    shutil.copytree(backup_dir, source_dir, dirs_exist_ok=True)
-    print("Restoration complete.")
+    Restores the .rs files from their backup locations to their original locations.
+    """
+    for backup_path, original_path in file_mapping.items():
+        shutil.copy(backup_path, original_path)
+    print("Restored all .rs files from backup.")
 
 def process_sed_commands():
     """
-    Processes sed commands to modify files conditionally based on cargo checks.
-    Ensures that the number of errors never increases.
-    Reverts to an initial backup if post-processing errors exceed initial counts.
+    Processes sed commands, applying only if they don't increase the number of errors.
+    Uses an initial backup of .rs files to restore if errors increase.
     """
     # Determine the current working directory
     source_dir = os.getcwd()
 
-    # Create a temporary directory for the initial backup
+    # Create a temporary directory for the initial backup of .rs files
     initial_backup_dir = tempfile.mkdtemp(prefix="initial_backup_")
-    backup_directory(source_dir, initial_backup_dir)
+    file_mapping = backup_rs_files(source_dir, initial_backup_dir)
 
     try:
         # Attempt to get sed commands from the clipboard
@@ -147,8 +121,7 @@ def process_sed_commands():
         sed_file = 'sed.sh'
         if not os.path.exists(sed_file):
             print(f"{sed_file} not found in the current directory.")
-            # Clean up the initial backup before exiting
-            shutil.rmtree(initial_backup_dir)
+            shutil.rmtree(initial_backup_dir)  # Clean up the initial backup before exiting
             return
 
         with open(sed_file, 'r') as file:
@@ -171,10 +144,7 @@ def process_sed_commands():
             try:
                 parts = sed_command.split()
                 for part in parts:
-                    # Remove any trailing commas or semicolons
                     part_clean = part.rstrip(',;')
-                    # Assuming file paths come after the sed substitution pattern
-                    # This might need adjustment based on actual sed command structure
                     if os.path.exists(part_clean):
                         target_files.append(part_clean)
 
@@ -199,16 +169,12 @@ def process_sed_commands():
 
                 # Determine error and warning differences
                 check_error_diff = initial_check_errors - new_check_errors
-                check_warning_diff = initial_check_warnings - new_check_warnings
                 test_error_diff = initial_test_errors - new_test_errors
-                test_warning_diff = initial_test_warnings - new_test_warnings
 
-                print(f"New check errors: {new_check_errors}, New check warnings: {new_check_warnings}")
-                print(f"New test errors: {new_test_errors}, New test warnings: {new_test_warnings}")
+                print(f"New check errors: {new_check_errors}, New test errors: {new_test_errors}")
 
                 if new_check_errors > initial_check_errors or new_test_errors > initial_test_errors:
                     print("Errors have increased after applying this sed command. Reverting the change.")
-                    # Restore from per-command backup
                     for target_file, backup_file in backups.items():
                         shutil.copy(backup_file, target_file)
                 else:
@@ -228,7 +194,7 @@ def process_sed_commands():
     # Compare final errors with initial errors
     if (final_check_errors > initial_check_errors) or (final_test_errors > initial_test_errors):
         print("Final error count exceeds initial error count. Reverting all changes to the initial backup.")
-        restore_directory(initial_backup_dir, source_dir)
+        restore_rs_files(file_mapping)
     else:
         print("All sed commands applied successfully without increasing errors.")
 
