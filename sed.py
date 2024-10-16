@@ -26,6 +26,7 @@ def parse_cargo_output(output):
     errors = 0
     warnings = 0
 
+    # Regex to catch error and warning summaries
     compile_fail_pattern = re.compile(
         r'^error:\s+could not compile `.*?`.*?due to\s+(\d+)\s+previous error[s]?;?\s+(\d+)\s+warnings? emitted',
         re.IGNORECASE
@@ -134,6 +135,9 @@ def process_sed_commands():
     print(f"Initial check errors: {initial_check_errors}, Initial check warnings: {initial_check_warnings}")
     print(f"Initial test errors: {initial_test_errors}, Initial test warnings: {initial_test_warnings}")
 
+    # Store the initial number of errors to ensure they don't increase overall
+    initial_total_errors = initial_check_errors + initial_test_errors
+
     # Temporary directory to store per-command backups
     with tempfile.TemporaryDirectory() as tmpdirname:
         for idx, sed_command in enumerate(sed_commands, start=1):
@@ -168,12 +172,12 @@ def process_sed_commands():
                 new_check_errors, new_check_warnings, new_test_errors, new_test_warnings = run_cargo_checks()
 
                 # Determine error and warning differences
-                check_error_diff = initial_check_errors - new_check_errors
-                test_error_diff = initial_test_errors - new_test_errors
+                new_total_errors = new_check_errors + new_test_errors
 
                 print(f"New check errors: {new_check_errors}, New test errors: {new_test_errors}")
 
-                if new_check_errors > initial_check_errors or new_test_errors > initial_test_errors:
+                # Ensure that errors never increase
+                if new_total_errors > initial_total_errors:
                     print("Errors have increased after applying this sed command. Reverting the change.")
                     for target_file, backup_file in backups.items():
                         shutil.copy(backup_file, target_file)
@@ -188,12 +192,13 @@ def process_sed_commands():
     print("\nRunning final cargo check and test after applying all sed commands...")
     final_check_errors, final_check_warnings, final_test_errors, final_test_warnings = run_cargo_checks()
 
-    print(f"Final check errors: {final_check_errors}, Final check warnings: {final_check_warnings}")
-    print(f"Final test errors: {final_test_errors}, Final test warnings: {final_test_warnings}")
+    final_total_errors = final_check_errors + final_test_errors
+
+    print(f"Final check errors: {final_check_errors}, Final test errors: {final_test_errors}")
 
     # Compare final errors with initial errors
-    if (final_check_errors > initial_check_errors) or (final_test_errors > initial_test_errors):
-        print("Final error count exceeds initial error count. Reverting all changes to the initial backup.")
+    if final_total_errors >= initial_total_errors:
+        print("Final error count is the same or higher. Reverting all changes to the initial backup.")
         restore_rs_files(file_mapping)
     else:
         print("All sed commands applied successfully without increasing errors.")
