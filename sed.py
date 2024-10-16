@@ -3,6 +3,7 @@ import shutil
 import os
 import tempfile
 import pyperclip
+from pyperclip import PyperclipException
 
 def run_command(command):
     result = subprocess.run(command, shell=True, capture_output=True, text=True)
@@ -30,20 +31,22 @@ def run_cargo_checks():
 
 # Main function to process sed commands
 def process_sed_commands():
-    # Check clipboard first
-    clipboard_content = pyperclip.paste().strip()
+    try:
+        # Try to get content from the clipboard
+        clipboard_content = pyperclip.paste().strip()
 
-    if clipboard_content.startswith("sed"):
-        sed_commands = [clipboard_content]
-        print(f"Using sed command from clipboard: {clipboard_content}")
-    else:
-        # Check if sed.sh exists if clipboard doesn't contain sed command
+        if clipboard_content.startswith("sed"):
+            sed_commands = [clipboard_content]
+            print(f"Using sed command from clipboard: {clipboard_content}")
+        else:
+            raise PyperclipException  # Fallback to file if clipboard content is not a sed command
+    except PyperclipException:
+        print("Clipboard unavailable or doesn't contain a sed command. Checking sed.sh file instead.")
         sed_file = 'sed.sh'
         if not os.path.exists(sed_file):
             print(f"{sed_file} not found in the current directory.")
             return
 
-        # Read the sed.sh file
         with open(sed_file, 'r') as file:
             sed_commands = [line.strip() for line in file.readlines() if line.strip()]
 
