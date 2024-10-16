@@ -4,6 +4,7 @@ import os
 import tempfile
 import pyperclip
 from pyperclip import PyperclipException
+import re
 
 def run_command(command):
     # Merge stderr into stdout to capture all output
@@ -20,31 +21,37 @@ def parse_cargo_output(output):
     errors = 0
     warnings = 0
 
+    # Regex patterns
+    compile_fail_pattern = re.compile(
+        r'could not compile `.*?`.*?due to\s+(\d+)\s+previous error[s]?;?\s+(\d+)\s+warnings? emitted',
+        re.IGNORECASE
+    )
+    individual_error_pattern = re.compile(r'^\s*error:\s+(?!\[E)')
+    individual_warning_pattern = re.compile(r'^\s*warning:\s+(?!\[E)')
+
     for line in output.splitlines():
-        # Count individual error lines
-        if "error:" in line and not line.startswith("error[E"):
+        # Debug: Print each line being processed
+        print(f"Processing line: {line}")
+
+        # Handle 'could not compile' lines and extract error and warning counts
+        compile_fail_match = compile_fail_pattern.search(line)
+        if compile_fail_match:
+            error_count = int(compile_fail_match.group(1))
+            warning_count = int(compile_fail_match.group(2))
+            errors += error_count
+            warnings += warning_count
+            print(f"Matched compile fail line: {line} with {error_count} errors and {warning_count} warnings")  # Debug
+            continue  # Skip further processing for this line to prevent double counting
+
+        # Match individual error lines
+        if individual_error_pattern.search(line):
             errors += 1
-        # Handle summary lines like "could not compile `ferromic` due to X previous errors"
-        elif "could not compile" in line and "due to" in line:
-            parts = line.split()
-            # Look for the number before "previous errors"
-            if "previous" in parts:
-                try:
-                    index = parts.index("previous")
-                    error_count = int(parts[index - 1])
-                    errors += error_count
-                except (ValueError, IndexError):
-                    pass  # If parsing fails, skip adding errors
-        # Count individual warning lines
-        elif "warning:" in line and not line.startswith("warning[E"):
+            print(f"Matched individual error line: {line}")  # Debug
+
+        # Match individual warning lines
+        if individual_warning_pattern.search(line):
             warnings += 1
-        # Handle summary lines like "10 warnings emitted"
-        elif "warnings emitted" in line:
-            try:
-                warning_count = int(line.split()[0])
-                warnings += warning_count
-            except (ValueError, IndexError):
-                pass  # If parsing fails, skip adding warnings
+            print(f"Matched individual warning line: {line}")  # Debug
 
     return errors, warnings
 
