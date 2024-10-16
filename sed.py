@@ -6,41 +6,48 @@ import pyperclip
 from pyperclip import PyperclipException
 
 def run_command(command):
-    result = subprocess.run(command, shell=True, capture_output=True, text=True)
-    return result.returncode, result.stdout, result.stderr
+    # Merge stderr into stdout to capture all output
+    result = subprocess.run(command, shell=True, capture_output=True, text=True, stderr=subprocess.STDOUT)
+    return result.returncode, result.stdout
 
 def parse_cargo_output(output):
     errors = 0
     warnings = 0
 
     for line in output.splitlines():
-        # Count regular error lines
-        if "error:" in line:
+        # Count individual error lines
+        if "error:" in line and not line.startswith("error[E"):
             errors += 1
-        # Capture the summary line that mentions how many errors occurred
-        elif "previous errors" in line and "due to" in line:
+        # Handle summary lines like "could not compile `xyz` due to X previous errors"
+        elif "could not compile" in line and "due to" in line:
             parts = line.split()
-            # Extract the number of previous errors
-            for part in parts:
-                if part.isdigit():
-                    errors += int(part)
-                    break
-        # Count warnings
-        elif "warning:" in line:
+            # Look for the number before "previous errors"
+            if "previous" in parts:
+                try:
+                    index = parts.index("previous")
+                    error_count = int(parts[index - 1])
+                    errors += error_count
+                except (ValueError, IndexError):
+                    pass  # If parsing fails, skip adding errors
+        # Count individual warning lines
+        elif "warning:" in line and not line.startswith("warning[E"):
             warnings += 1
+        # Handle summary lines like "10 warnings emitted"
         elif "warnings emitted" in line:
-            # Capture emitted warnings if summarized
-            warnings += int(line.split()[0])
+            try:
+                warning_count = int(line.split()[0])
+                warnings += warning_count
+            except (ValueError, IndexError):
+                pass  # If parsing fails, skip adding warnings
 
     return errors, warnings
 
-
 # Function to run cargo check and cargo test, then return error and warning counts for both
 def run_cargo_checks():
-    _, check_output, _ = run_command("cargo check")
+    _, check_output = run_command("cargo check")
     check_errors, check_warnings = parse_cargo_output(check_output)
 
-    _, test_output, _ = run_command("cargo test")
+    _, test_output = run_command("cargo test")
     test_errors, test_warnings = parse_cargo_output(test_output)
 
     return check_errors, check_warnings, test_errors, test_warnings
@@ -83,8 +90,10 @@ def process_sed_commands():
             try:
                 parts = sed_command.split()
                 for part in parts:
-                    if os.path.exists(part):
-                        target_files.append(part)
+                    # Remove any trailing commas or semicolons
+                    part_clean = part.rstrip(',;')
+                    if os.path.exists(part_clean):
+                        target_files.append(part_clean)
 
                 if not target_files:
                     print(f"No valid files found in command: {sed_command}, skipping.")
@@ -97,7 +106,7 @@ def process_sed_commands():
                     backups[target_file] = backup_path
 
                 # Apply the sed command (tentative)
-                retcode, _, stderr = run_command(sed_command)
+                retcode, output = run_command(sed_command)
                 if retcode != 0:
                     print(f"Failed to run command: {sed_command}, skipping.")
                     continue
