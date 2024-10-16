@@ -12,20 +12,25 @@ def run_command(command):
 def parse_cargo_output(output):
     errors = 0
     warnings = 0
-    error_block = False
-    
+
     for line in output.splitlines():
+        # Count regular error lines
         if "error:" in line:
             errors += 1
-        elif "warnings emitted" in line:
-            warnings += int(line.split()[0])
-        elif "warnings" in line and "emitted" not in line:
+        # Capture the summary line that mentions how many errors occurred
+        elif "previous errors" in line and "due to" in line:
+            parts = line.split()
+            # Extract the number of previous errors
+            for part in parts:
+                if part.isdigit():
+                    errors += int(part)
+                    break
+        # Count warnings
+        elif "warning:" in line:
             warnings += 1
-        elif "could not compile" in line:
-            errors += 1
-        elif "due to" in line and "errors" in line:
-            error_count = int(line.split()[2])
-            errors += error_count
+        elif "warnings emitted" in line:
+            # Capture emitted warnings if summarized
+            warnings += int(line.split()[0])
 
     return errors, warnings
 
