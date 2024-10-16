@@ -12,12 +12,23 @@ def run_command(command):
 def parse_cargo_output(output):
     errors = 0
     warnings = 0
+    error_block = False
+    
     for line in output.splitlines():
         if "error:" in line:
             errors += 1
-        elif "warning:" in line:
+        elif "warnings emitted" in line:
+            warnings += int(line.split()[0])
+        elif "warnings" in line and "emitted" not in line:
             warnings += 1
+        elif "could not compile" in line:
+            errors += 1
+        elif "due to" in line and "errors" in line:
+            error_count = int(line.split()[2])
+            errors += error_count
+
     return errors, warnings
+
 
 # Function to run cargo check and cargo test, then return error and warning counts for both
 def run_cargo_checks():
